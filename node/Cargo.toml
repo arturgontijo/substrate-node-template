@@ -62,6 +62,12 @@ node-template-runtime = { version = "4.0.0-dev", path = "../runtime" }
 # CLI-specific dependencies
 try-runtime-cli = { version = "0.10.0-dev", optional = true, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.20" }
 
+# Permissioned Network tutorial
+bs58 = "0.4.0"
+
+# ink! Tutorial
+pallet-contracts-rpc = { default-features = false, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.20" }
+
 [build-dependencies]
 substrate-build-script-utils = { version = "3.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.20" }
 
