@@ -82,6 +82,10 @@ pub mod pallet {
 		#[pallet::constant]
 		type MaxSocialAccountLength: Get<u32>;
 
+		/// The maximum length of a Social Proof (eg link/keybase).
+		#[pallet::constant]
+		type MaxSocialProofLength: Get<u32>;
+
 		/// The maximum number of Huddles a Host can create.
 		#[pallet::constant]
 		type MaxHuddlesPerHost: Get<u32>;
@@ -108,7 +112,7 @@ pub mod pallet {
 	#[pallet::generate_deposit(pub(super) fn deposit_event)]
 	pub enum Event<T: Config> {
 		/// Event for Host registration.
-		HostRegistered(T::AccountId, SocialAccount<T>),
+		HostRegistered(T::AccountId, SocialAccount<T>, SocialProof<T>),
 		/// Event for Huddle creation.
 		HuddleCreated(T::AccountId, T::Moment, BalanceOf<T>),
 		/// Event for Bid creation.
@@ -128,6 +132,8 @@ pub mod pallet {
 		TooManyBids,
 		/// Social Account length is too long.
 		SocialAccountTooLong,
+		/// Social Proof length is too long.
+		SocialProofTooLong,
 		/// Overflow in HuddleId.
 		OverflowHuddleId,
 		/// Overflow in BidId.
@@ -151,9 +157,10 @@ pub mod pallet {
 	}
 
 	pub type SocialAccount<T> = BoundedVec<u8, <T as Config>::MaxSocialAccountLength>;
+	pub type SocialProof<T> = BoundedVec<u8, <T as Config>::MaxSocialProofLength>;
 	pub type HuddleId = u64;
 
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 	pub enum HuddleStatus {
 		/// Huddle is open for bids.
 		Open,
@@ -163,7 +170,7 @@ pub mod pallet {
 		Concluded,
 	}
 
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
+	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 	pub enum BidStatus {
 		/// Current winning Bid.
 		Winning,
@@ -177,9 +184,16 @@ pub mod pallet {
 	type BalanceOf<T> =
 	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
-	/// Struct for holding Bid's information.
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-	#[codec(mel_bound())]
+	/// Struct for Registered User (Host) information.
+	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
+	#[scale_info(skip_type_params(T))]
+	pub struct UserProfile<T: Config> {
+		pub social_account: SocialAccount<T>,
+		pub proof: SocialProof<T>,
+	}
+
+	/// Struct for Bid's information.
+	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Bid<T: Config> {
 		pub huddle: HuddleId,
@@ -187,9 +201,8 @@ pub mod pallet {
 		pub status: BidStatus,
 	}
 
-	/// Struct for holding Huddle's information.
-	#[derive(Clone, Encode, Decode, PartialEq, RuntimeDebug, MaxEncodedLen, TypeInfo)]
-	#[codec(mel_bound())]
+	/// Struct for Huddle's information.
+	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct Huddle<T: Config> {
 		pub id: HuddleId,
@@ -207,8 +220,8 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn hosts)]
 	/// Binds an AccountId to a SubSocial Account.
-	pub(super) type Hosts<T: Config> =
-	StorageMap<_, Twox64Concat, T::AccountId, SocialAccount<T>, ValueQuery>;
+	pub(super) type Hosts<T: Config> = StorageMap<
+		_, Twox64Concat, T::AccountId, UserProfile<T>, OptionQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn huddles)]
@@ -218,7 +231,7 @@ pub mod pallet {
 		Twox64Concat,
 		T::AccountId,
 		BoundedVec<Huddle<T>, T::MaxHuddlesPerHost>,
-		ValueQuery,
+		OptionQuery,
 	>;
 
 	#[pallet::storage]
@@ -229,13 +242,17 @@ pub mod pallet {
 		Twox64Concat,
 		T::AccountId,
 		BoundedVec<Bid<T>, T::MaxBidsPerUser>,
-		ValueQuery,
+		OptionQuery,
 	>;
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
 		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
-		pub fn register(origin: OriginFor<T>, social_account: SocialAccount<T>) -> DispatchResult {
+		pub fn register(
+			origin: OriginFor<T>,
+			social_account: SocialAccount<T>,
+			proof: SocialProof<T>,
+		) -> DispatchResult {
 			let host = ensure_signed(origin)?;
 
 			ensure!(
@@ -243,11 +260,21 @@ pub mod pallet {
 				Error::<T>::SocialAccountTooLong
 			);
 
+			ensure!(
+				proof.len() <= T::MaxSocialProofLength::get() as usize,
+				Error::<T>::SocialProofTooLong
+			);
+
+			let user_profile = UserProfile {
+				social_account: social_account.clone(),
+				proof: proof.clone()
+			};
+
 			// Insert/Update the Social Account of the origin's AccountId.
-			<Hosts<T>>::insert(&host, social_account.clone());
+			<Hosts<T>>::insert(&host, &user_profile);
 
 			// Emit an event.
-			Self::deposit_event(Event::HostRegistered(host, social_account));
+			Self::deposit_event(Event::HostRegistered(host, social_account, proof));
 
 			Ok(())
 		}
@@ -280,17 +307,15 @@ pub mod pallet {
 				status: HuddleStatus::Open,
 			};
 
-			let mut huddles = <Huddles<T>>::get(&host);
-			huddles.try_push(new_huddle).map_err(|()| Error::<T>::TooManyHuddles)?;
-
-			// Update the Host's Huddles.
-			<Huddles<T>>::insert(&host, huddles);
-
-			// Update the Huddle counter.
-			<HuddleCounter<T>>::put(next_uuid);
-
-			// Emit an event
-			Self::deposit_event(Event::HuddleCreated(host, timestamp, min_value));
+			if let Some(mut huddles) = <Huddles<T>>::get(&host) {
+				huddles.try_push(new_huddle).map_err(|()| Error::<T>::TooManyHuddles)?;
+				// Update the Host's Huddles.
+				<Huddles<T>>::insert(&host, huddles);
+				// Update the Huddle counter.
+				<HuddleCounter<T>>::put(next_uuid);
+				// Emit an event
+				Self::deposit_event(Event::HuddleCreated(host, timestamp, min_value));
+			}
 
 			Ok(())
 		}
@@ -308,44 +333,45 @@ pub mod pallet {
 			ensure!(0 < huddle && huddle <= Self::huddle_counter(), Error::<T>::InvalidHuddleId);
 
 			let mut ok = true;
-			let mut huddles = <Huddles<T>>::get(&host);
-			match huddles.binary_search_by(|h| h.id.cmp(&huddle)) {
-				Ok(pos) => {
-					// Check the Timestamp (is the Huddle still valid?).
-					let now = <timestamp::Pallet<T>>::get();
-					ensure!(huddles[pos].timestamp >= now, Error::<T>::InvalidTimestamp);
-					// Check if Bid's value is greater than the winning one.
-					let value_threshold = <BalanceOf<T>>::from(T::MinBidValueThreshold::get());
-					ensure!(
+			if let Some(mut huddles) = <Huddles<T>>::get(&host) {
+				match huddles.binary_search_by(|h| h.id.cmp(&huddle)) {
+					Ok(pos) => {
+						// Check the Timestamp (is the Huddle still valid?).
+						let now = <timestamp::Pallet<T>>::get();
+						ensure!(huddles[pos].timestamp >= now, Error::<T>::InvalidTimestamp);
+						// Check if Bid's value is greater than the winning one.
+						let value_threshold = <BalanceOf<T>>::from(T::MinBidValueThreshold::get());
+						ensure!(
 						value > huddles[pos].value.unwrap() + value_threshold,
 						Error::<T>::BidIsTooLow
 					);
 
-					// We need to release the reserve value of the current winning Bid.
-					if let Some(last_guest) = huddles[pos].guest.clone() {
-						ensure!(
+						// We need to release the reserve value of the current winning Bid.
+						if let Some(last_guest) = huddles[pos].guest.clone() {
+							ensure!(
 							release_value::<T>(&last_guest, huddle),
 							Error::<T>::UnreserveError
 						);
-					}
+						}
 
-					insert_update_bid::<T>(&guest, huddle, value);
+						insert_update_bid::<T>(&guest, huddle, value);
 
-					// Reserve the value of the Bid.
-					T::Currency::reserve(&guest, value.clone())?;
+						// Reserve the value of the Bid.
+						T::Currency::reserve(&guest, value.clone())?;
 
-					// Update the Huddle's data.
-					huddles[pos].value = Some(value);
-					huddles[pos].guest = Some(guest.clone());
-					huddles[pos].status = HuddleStatus::InAuction;
+						// Update the Huddle's data.
+						huddles[pos].value = Some(value);
+						huddles[pos].guest = Some(guest.clone());
+						huddles[pos].status = HuddleStatus::InAuction;
 
-					// Update the Host's Huddles.
-					<Huddles<T>>::insert(&host, huddles);
+						// Update the Host's Huddles.
+						<Huddles<T>>::insert(&host, huddles);
 
-					// Emit an event.
-					Self::deposit_event(Event::BidCreated(guest, huddle, value));
-				},
-				Err(_) => ok = false,
+						// Emit an event.
+						Self::deposit_event(Event::BidCreated(guest, huddle, value));
+					},
+					Err(_) => ok = false,
+				}
 			}
 
 			ensure!(ok, Error::<T>::HostInvalidHuddleId);
@@ -359,32 +385,33 @@ pub mod pallet {
 			ensure!(0 < huddle && huddle <= Self::huddle_counter(), Error::<T>::InvalidHuddleId);
 
 			let mut ok = true;
-			let mut huddles = <Huddles<T>>::get(&host);
-			match huddles.binary_search_by(|h| h.id.cmp(&huddle)) {
-				Ok(pos) => {
-					// Check if it can be claimed by verifying the Timestamp.
-					let now = <timestamp::Pallet<T>>::get();
-					ensure!(huddles[pos].timestamp < now, Error::<T>::TimestampNotReached);
+			if let Some(mut huddles) = <Huddles<T>>::get(&host) {
+				match huddles.binary_search_by(|h| h.id.cmp(&huddle)) {
+					Ok(pos) => {
+						// Check if it can be claimed by verifying the Timestamp.
+						let now = <timestamp::Pallet<T>>::get();
+						ensure!(huddles[pos].timestamp < now, Error::<T>::TimestampNotReached);
 
-					// We need to release the reserve value of the last winning Bid.
-					if let Some(guest) = huddles[pos].guest.clone() {
-						ensure!(
+						// We need to release the reserve value of the last winning Bid.
+						if let Some(guest) = huddles[pos].guest.clone() {
+							ensure!(
 							repatriate_value::<T>(&guest, &host, huddle),
 							Error::<T>::RepatriateError
 						);
-					}
+						}
 
-					// Update the Huddle's status.
-					huddles[pos].status = HuddleStatus::Concluded;
-					let value = huddles[pos].value.unwrap();
+						// Update the Huddle's status.
+						huddles[pos].status = HuddleStatus::Concluded;
+						let value = huddles[pos].value.unwrap();
 
-					// Update the Host's Huddles.
-					<Huddles<T>>::insert(&host, huddles);
+						// Update the Host's Huddles.
+						<Huddles<T>>::insert(&host, huddles);
 
-					// Emit an event.
-					Self::deposit_event(Event::Claimed(host, huddle, value));
-				},
-				Err(_) => ok = false,
+						// Emit an event.
+						Self::deposit_event(Event::Claimed(host, huddle, value));
+					},
+					Err(_) => ok = false,
+				}
 			}
 
 			ensure!(ok, Error::<T>::InvalidClaim);
@@ -399,44 +426,48 @@ pub mod pallet {
 		huddle: HuddleId,
 		value: BalanceOf<T>,
 	) -> bool {
-		let mut bids = <Bids<T>>::get(guest);
-		match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
-			Ok(pos) => {
-				bids[pos].value = Some(value);
-				bids[pos].status = BidStatus::Winning;
-			},
-			Err(_) => {
-				// Insert a Bid entry.
-				let res = bids
-					.try_push(Bid {
-						huddle: huddle.clone(),
-						value: Some(value),
-						status: BidStatus::Winning,
-					})
-					.map_err(|()| Error::<T>::TooManyBids);
-				if !res.is_ok() {
-					return false
-				}
-			},
+		if let Some(mut bids) = <Bids<T>>::get(guest) {
+			match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
+				Ok(pos) => {
+					bids[pos].value = Some(value);
+					bids[pos].status = BidStatus::Winning;
+				},
+				Err(_) => {
+					// Insert a Bid entry.
+					let res = bids
+						.try_push(Bid {
+							huddle: huddle.clone(),
+							value: Some(value),
+							status: BidStatus::Winning,
+						})
+						.map_err(|()| Error::<T>::TooManyBids);
+					if !res.is_ok() {
+						return false;
+					}
+				},
+			}
+			// Update the Guest's Bids.
+			<Bids<T>>::insert(guest, bids);
+			return true;
 		}
-		// Update the Guest's Bids.
-		<Bids<T>>::insert(guest, bids);
-		true
+		false
 	}
 
 	/// Release the value of a Surpassed Bid.
 	fn release_value<T: Config>(guest: &AccountOf<T>, huddle: HuddleId) -> bool {
-		let mut bids = <Bids<T>>::get(guest);
-		match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
-			Ok(pos) => {
-				T::Currency::unreserve(guest, bids[pos].value.unwrap());
-				bids[pos].status = BidStatus::Surpassed;
-				// Update the Guest's Bids.
-				<Bids<T>>::insert(guest, bids);
-			},
-			Err(_) => return false,
+		if let Some(mut bids) = <Bids<T>>::get(guest) {
+			match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
+				Ok(pos) => {
+					T::Currency::unreserve(guest, bids[pos].value.unwrap());
+					bids[pos].status = BidStatus::Surpassed;
+					// Update the Guest's Bids.
+					<Bids<T>>::insert(guest, bids);
+				},
+				Err(_) => return false,
+			}
+			return true;
 		}
-		true
+		false
 	}
 
 	/// Repatriate the winning Bid's value to the Huddle's Host.
@@ -445,25 +476,27 @@ pub mod pallet {
 		host: &AccountOf<T>,
 		huddle: HuddleId,
 	) -> bool {
-		let mut bids = <Bids<T>>::get(guest);
-		match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
-			Ok(pos) => {
-				// Repatriate the value of the Bid to the Host.
-				let res = T::Currency::repatriate_reserved(
-					guest,
-					host,
-					bids[pos].value.unwrap(),
-					BalanceStatus::Free,
-				);
-				if !res.is_ok() {
-					return false
-				}
-				bids[pos].status = BidStatus::Winner;
-				// Update the Guest's Bids.
-				<Bids<T>>::insert(guest, bids);
-			},
-			Err(_) => return false,
+		if let Some(mut bids) = <Bids<T>>::get(guest) {
+			match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
+				Ok(pos) => {
+					// Repatriate the value of the Bid to the Host.
+					let res = T::Currency::repatriate_reserved(
+						guest,
+						host,
+						bids[pos].value.unwrap(),
+						BalanceStatus::Free,
+					);
+					if !res.is_ok() {
+						return false;
+					}
+					bids[pos].status = BidStatus::Winner;
+					// Update the Guest's Bids.
+					<Bids<T>>::insert(guest, bids);
+				},
+				Err(_) => return false,
+			}
+			return true;
 		}
-		true
+		false
 	}
 }
