@@ -1,7 +1,7 @@
 [package]
-name = "pallet-template"
+name = "pallet-huddle"
 version = "4.0.0-dev"
-description = "FRAME pallet template for defining custom runtime logic."
+description = "FRAME pallet that implements my Huddle idea for PBA2022."
 authors = ["Substrate DevHub <https://github.com/substrate-developer-hub>"]
 homepage = "https://substrate.io/"
 edition = "2021"
@@ -13,18 +13,20 @@ repository = "https://github.com/substrate-developer-hub/substrate-node-template
 targets = ["x86_64-unknown-linux-gnu"]
 
 [dependencies]
-codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = [
-	"derive",
-] }
+codec = { package = "parity-scale-codec", version = "3.0.0", default-features = false, features = ["derive"] }
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 frame-support = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26"}
 frame-system = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 frame-benchmarking = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26", optional = true }
+sp-io = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
+pallet-timestamp = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 
 [dev-dependencies]
 sp-core = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 sp-io = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 sp-runtime = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
+pallet-balances = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
+pallet-timestamp = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 
 [features]
 default = ["std"]
@@ -34,6 +36,8 @@ std = [
 	"frame-support/std",
 	"frame-system/std",
 	"frame-benchmarking/std",
+	"pallet-balances/std",
+	"pallet-timestamp/std",
 ]
 
 runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]

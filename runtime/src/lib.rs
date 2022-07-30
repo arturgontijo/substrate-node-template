@@ -33,7 +33,7 @@ pub use frame_support::{
 		constants::{BlockExecutionWeight, ExtrinsicBaseWeight, RocksDbWeight, WEIGHT_PER_SECOND},
 		IdentityFee, Weight,
 	},
-	StorageValue,
+	StorageValue, PalletId,
 };
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
@@ -43,8 +43,8 @@ use pallet_transaction_payment::CurrencyAdapter;
 pub use sp_runtime::BuildStorage;
 pub use sp_runtime::{Perbill, Permill};
 
-/// Import the template pallet.
-pub use pallet_template;
+/// Import the Huddle pallet.
+pub use pallet_huddle;
 
 /// An index to a block.
 pub type BlockNumber = u32;
@@ -262,9 +262,28 @@ impl pallet_sudo::Config for Runtime {
 	type Call = Call;
 }
 
-/// Configure the pallet-template in pallets/template.
-impl pallet_template::Config for Runtime {
+parameter_types! {
+	pub const HuddlePalletId: PalletId = PalletId(*b"huddle22");
+	pub const MaxSocialAccountLength: u32 = 64;
+	pub const MaxHuddlesPerHost: u32 = 64;
+	pub const MaxBidsPerUser: u32 = 64;
+	// Minimum time offset (in milli-seconds) to create a Huddle, from now.
+	// In production this would be like 1 day.
+	pub const MinTimestampThreshold: u64 = 60 * 1000;
+	// Minimum value offset to surpass the current winning Bid's value.
+	pub const MinBidValueThreshold: u32 = 1_000_000_000;
+}
+
+/// Configure the pallet-huddle in pallets/huddle.
+impl pallet_huddle::Config for Runtime {
 	type Event = Event;
+	type PalletId = HuddlePalletId;
+	type Currency = Balances;
+	type MaxSocialAccountLength = MaxSocialAccountLength;
+	type MaxHuddlesPerHost = MaxHuddlesPerHost;
+	type MaxBidsPerUser = MaxBidsPerUser;
+	type MinTimestampThreshold = MinTimestampThreshold;
+	type MinBidValueThreshold = MinBidValueThreshold;
 }
 
 // Create the runtime by composing the FRAME pallets that were previously configured.
@@ -282,8 +301,7 @@ construct_runtime!(
 		Balances: pallet_balances,
 		TransactionPayment: pallet_transaction_payment,
 		Sudo: pallet_sudo,
-		// Include the custom logic from the pallet-template in the runtime.
-		TemplateModule: pallet_template,
+		Huddle: pallet_huddle,
 	}
 );
 
@@ -328,7 +346,7 @@ mod benches {
 		[frame_system, SystemBench::<Runtime>]
 		[pallet_balances, Balances]
 		[pallet_timestamp, Timestamp]
-		[pallet_template, TemplateModule]
+		[pallet_huddle, Huddle]
 	);
 }
 
