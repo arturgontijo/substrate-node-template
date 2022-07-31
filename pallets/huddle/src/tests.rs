@@ -45,7 +45,8 @@ fn huddle_works() {
 					timestamp: 100,
 					guest: None,
 					value: 2,
-					status: HuddleStatus::Open
+					status: HuddleStatus::Open,
+					stars: 0,
 				}])
 				.unwrap()
 			),
@@ -62,7 +63,7 @@ fn huddle_works() {
 		// (3) has reserved 5 for the Bid's value.
 		assert_eq!(Balances::free_balance(3), 45);
 
-		// Checking the created Huddle.
+		// Checking the Huddle.
 		assert_eq!(
 			HuddlePallet::huddles(1),
 			Some(
@@ -71,7 +72,8 @@ fn huddle_works() {
 					timestamp: 100,
 					guest: Some(3), // (3) is the winning guest.
 					value: 5,
-					status: HuddleStatus::InAuction
+					status: HuddleStatus::InAuction,
+					stars: 0,
 				}])
 				.unwrap()
 			)
@@ -80,7 +82,7 @@ fn huddle_works() {
 		// (2) bids for (1)'s Huddle -> bid(origin, host, huddle, value).
 		assert_ok!(HuddlePallet::bid(Origin::signed(2), 1, 1, 15));
 
-		// Checking the created Huddle.
+		// Checking the Huddle.
 		assert_eq!(
 			HuddlePallet::huddles(1),
 			Some(
@@ -89,7 +91,8 @@ fn huddle_works() {
 					timestamp: 100,
 					guest: Some(2), // (2) is the winning guest.
 					value: 15,
-					status: HuddleStatus::InAuction
+					status: HuddleStatus::InAuction,
+					stars: 0,
 				}])
 				.unwrap()
 			)
@@ -98,7 +101,7 @@ fn huddle_works() {
 		// Check timestamp
 		assert_eq!(pallet_timestamp::Pallet::<Test>::get(), 0);
 		// Run till block 10 (6 secs per block)
-		mock::run_to_block(10);
+		run_to_block(10);
 		// Timestamp must be 60
 		assert_eq!(pallet_timestamp::Pallet::<Test>::get(), 60);
 
@@ -106,7 +109,7 @@ fn huddle_works() {
 		assert_noop!(HuddlePallet::claim(Origin::signed(1), 1), Error::<Test>::TimestampNotReached);
 
 		// Run 10 more blocks (6 secs per block)
-		mock::run_to_block(20);
+		run_to_block(20);
 		// Timestamp must be 120
 		assert_eq!(pallet_timestamp::Pallet::<Test>::get(), 120);
 
@@ -116,5 +119,25 @@ fn huddle_works() {
 
 		// (1) now has 50 (initial) + 15 (bid's value claimed) free balance.
 		assert_eq!(Balances::free_balance(1), 65);
+
+		// User (1) tries to rate his own huddle -> rate(origin, host, huddle, stars).
+		assert_noop!(HuddlePallet::rate(Origin::signed(1), 1, 1, 5), Error::<Test>::HostsCannotRateTheirHuddles);
+		// User (2), the winner, can rate the concluded huddle.
+		assert_ok!(HuddlePallet::rate(Origin::signed(2), 1, 1, 3));
+		// Checking the Huddle.
+		assert_eq!(
+			HuddlePallet::huddles(1),
+			Some(
+				BoundedVec::try_from(vec![Huddle {
+					id: 1,
+					timestamp: 100,
+					guest: Some(2), // (2) is the winner guest.
+					value: 15,
+					status: HuddleStatus::Concluded,
+					stars: 3,
+				}])
+				.unwrap()
+			)
+		);
 	});
 }

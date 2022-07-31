@@ -37,8 +37,8 @@
 //! 	5.2 - the timestamp must be somewhere in the future;
 //! 	5.3 - Huddles with timestamp in the pass cannot receive new bids.
 //! 	5.4 - new bids must have greater values than the current winning one.
-//! 6 - Reputation System:
-//! 	6.1 - after the Huddle, both participants are able to rate it.
+//! 6 - Reputation System (number of stars):
+//! 	6.1 - after the Huddle, guest participant is able to rate it.
 //! 	6.2 - a reputation score will be always available to the whole network.
 
 pub use pallet::*;
@@ -120,6 +120,8 @@ pub mod pallet {
 		BidCreated(T::AccountId, HuddleId, BalanceOf<T>),
 		/// Event for Bid creation.
 		Claimed(T::AccountId, HuddleId, BalanceOf<T>),
+		/// Event for rating.
+		RatingSent(T::AccountId, HuddleId, u8),
 	}
 
 	// Errors
@@ -145,6 +147,10 @@ pub mod pallet {
 		InvalidTimestamp,
 		/// Error for low value Bids.
 		BidIsTooLow,
+		/// Error if hosts bids their own huddles.
+		HostsCannotBidTheirHuddles,
+		/// Not the winner Bid.
+		NotWinnerBid,
 		/// Error while trying to unreserve Bid's value.
 		UnreserveError,
 		/// Error while trying to repatriate Bid's value to the Host.
@@ -155,6 +161,10 @@ pub mod pallet {
 		InvalidClaim,
 		/// Error while trying to unwrap a Vec into BoundedVec.
 		UnwrapErrorVec,
+		/// Error if hosts rates their own huddles.
+		HostsCannotRateTheirHuddles,
+		/// Error if guest sends more than 5 stars to the rate() function.
+		MaxStarValueIsFive,
 	}
 
 	pub type SocialAccount<T> = BoundedVec<u8, <T as Config>::MaxSocialAccountLength>;
@@ -211,6 +221,7 @@ pub mod pallet {
 		pub guest: Option<AccountOf<T>>,
 		pub value: BalanceOf<T>,
 		pub status: HuddleStatus,
+		pub stars: u8,
 	}
 
 	/// UUID for Huddles.
@@ -306,6 +317,7 @@ pub mod pallet {
 				guest: None,
 				value: min_value,
 				status: HuddleStatus::Open,
+				stars: 0,
 			};
 
 			if let Some(mut huddles) = <Huddles<T>>::get(&host) {
@@ -337,6 +349,8 @@ pub mod pallet {
 			value: BalanceOf<T>,
 		) -> DispatchResult {
 			let guest = ensure_signed(origin)?;
+
+			ensure!(host != guest, Error::<T>::HostsCannotBidTheirHuddles);
 
 			// Check if HuddleId is valid.
 			ensure!(0 < huddle && huddle <= Self::huddle_counter(), Error::<T>::InvalidHuddleId);
@@ -425,6 +439,62 @@ pub mod pallet {
 			}
 
 			ensure!(ok, Error::<T>::InvalidClaim);
+
+			Ok(())
+		}
+
+		#[pallet::weight(10_000 + T::DbWeight::get().writes(3))]
+		pub fn rate(
+			origin: OriginFor<T>,
+			host: AccountOf<T>,
+			huddle: HuddleId,
+			stars: u8,
+		) -> DispatchResult {
+			let guest = ensure_signed(origin)?;
+
+			ensure!(host != guest, Error::<T>::HostsCannotRateTheirHuddles);
+			ensure!(stars <= 5, Error::<T>::MaxStarValueIsFive);
+
+			// Check if HuddleId is valid.
+			ensure!(0 < huddle && huddle <= Self::huddle_counter(), Error::<T>::InvalidHuddleId);
+
+			let mut ok = true;
+			let mut winner = false;
+			if let Some(mut huddles) = <Huddles<T>>::get(&host) {
+				match huddles.binary_search_by(|h| h.id.cmp(&huddle)) {
+					Ok(pos) => {
+						// Check the Timestamp.
+						let now = <timestamp::Pallet<T>>::get();
+						ensure!(huddles[pos].timestamp < now, Error::<T>::TimestampNotReached);
+
+						// Check if the guest was the winner (huddle must be already claimed).
+						if let Some(bids) = <Bids<T>>::get(&guest) {
+							match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
+								Ok(pos) =>
+									if bids[pos].status == BidStatus::Winner {
+										winner = true;
+									},
+								Err(_) => {},
+							};
+						};
+
+						if winner {
+							// Update the Huddle's data.
+							huddles[pos].stars = stars.clone();
+
+							// Update the Host's Huddles.
+							<Huddles<T>>::insert(&host, huddles);
+
+							// Emit an event.
+							Self::deposit_event(Event::RatingSent(guest, huddle, stars));
+						}
+					},
+					Err(_) => ok = false,
+				}
+			}
+
+			ensure!(winner, Error::<T>::NotWinnerBid);
+			ensure!(ok, Error::<T>::HostInvalidHuddleId);
 
 			Ok(())
 		}
