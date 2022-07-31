@@ -59,6 +59,7 @@ use frame_support::{
 };
 
 use frame_system::pallet_prelude::*;
+use sp_std::prelude::*;
 
 use pallet_timestamp::{self as timestamp};
 
@@ -136,8 +137,6 @@ pub mod pallet {
 		SocialProofTooLong,
 		/// Overflow in HuddleId.
 		OverflowHuddleId,
-		/// Overflow in BidId.
-		OverflowBidId,
 		/// Invalid HuddleId.
 		InvalidHuddleId,
 		/// Invalid HuddleId for a given Host.
@@ -154,6 +153,8 @@ pub mod pallet {
 		TimestampNotReached,
 		/// Error while trying to claim the Winner Bid's value.
 		InvalidClaim,
+		/// Error while trying to unwrap a Vec into BoundedVec.
+		UnwrapErrorVec,
 	}
 
 	pub type SocialAccount<T> = BoundedVec<u8, <T as Config>::MaxSocialAccountLength>;
@@ -182,14 +183,14 @@ pub mod pallet {
 
 	type AccountOf<T> = <T as frame_system::Config>::AccountId;
 	type BalanceOf<T> =
-	<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
 	/// Struct for Registered User (Host) information.
 	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
 	#[scale_info(skip_type_params(T))]
 	pub struct UserProfile<T: Config> {
 		pub social_account: SocialAccount<T>,
-		pub proof: SocialProof<T>,
+		pub social_proof: SocialProof<T>,
 	}
 
 	/// Struct for Bid's information.
@@ -197,7 +198,7 @@ pub mod pallet {
 	#[scale_info(skip_type_params(T))]
 	pub struct Bid<T: Config> {
 		pub huddle: HuddleId,
-		pub value: Option<BalanceOf<T>>,
+		pub value: BalanceOf<T>,
 		pub status: BidStatus,
 	}
 
@@ -208,7 +209,7 @@ pub mod pallet {
 		pub id: HuddleId,
 		pub timestamp: T::Moment,
 		pub guest: Option<AccountOf<T>>,
-		pub value: Option<BalanceOf<T>>,
+		pub value: BalanceOf<T>,
 		pub status: HuddleStatus,
 	}
 
@@ -220,8 +221,8 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn hosts)]
 	/// Binds an AccountId to a SubSocial Account.
-	pub(super) type Hosts<T: Config> = StorageMap<
-		_, Twox64Concat, T::AccountId, UserProfile<T>, OptionQuery>;
+	pub(super) type Hosts<T: Config> =
+		StorageMap<_, Twox64Concat, T::AccountId, UserProfile<T>, OptionQuery>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn huddles)]
@@ -251,7 +252,7 @@ pub mod pallet {
 		pub fn register(
 			origin: OriginFor<T>,
 			social_account: SocialAccount<T>,
-			proof: SocialProof<T>,
+			social_proof: SocialProof<T>,
 		) -> DispatchResult {
 			let host = ensure_signed(origin)?;
 
@@ -261,20 +262,20 @@ pub mod pallet {
 			);
 
 			ensure!(
-				proof.len() <= T::MaxSocialProofLength::get() as usize,
+				social_proof.len() <= T::MaxSocialProofLength::get() as usize,
 				Error::<T>::SocialProofTooLong
 			);
 
 			let user_profile = UserProfile {
 				social_account: social_account.clone(),
-				proof: proof.clone()
+				social_proof: social_proof.clone(),
 			};
 
 			// Insert/Update the Social Account of the origin's AccountId.
 			<Hosts<T>>::insert(&host, &user_profile);
 
 			// Emit an event.
-			Self::deposit_event(Event::HostRegistered(host, social_account, proof));
+			Self::deposit_event(Event::HostRegistered(host, social_account, social_proof));
 
 			Ok(())
 		}
@@ -303,7 +304,7 @@ pub mod pallet {
 				id: next_uuid,
 				timestamp: timestamp.clone(),
 				guest: None,
-				value: Some(min_value),
+				value: min_value,
 				status: HuddleStatus::Open,
 			};
 
@@ -311,11 +312,19 @@ pub mod pallet {
 				huddles.try_push(new_huddle).map_err(|()| Error::<T>::TooManyHuddles)?;
 				// Update the Host's Huddles.
 				<Huddles<T>>::insert(&host, huddles);
-				// Update the Huddle counter.
-				<HuddleCounter<T>>::put(next_uuid);
-				// Emit an event
-				Self::deposit_event(Event::HuddleCreated(host, timestamp, min_value));
+			} else {
+				// Update the Host's Huddles.
+				<Huddles<T>>::insert(
+					&host,
+					BoundedVec::try_from(vec![new_huddle])
+						.map_err(|()| Error::<T>::UnwrapErrorVec)?,
+				);
 			}
+
+			// Update the Huddle counter.
+			<HuddleCounter<T>>::put(next_uuid);
+			// Emit an event
+			Self::deposit_event(Event::HuddleCreated(host, timestamp, min_value));
 
 			Ok(())
 		}
@@ -340,18 +349,19 @@ pub mod pallet {
 						let now = <timestamp::Pallet<T>>::get();
 						ensure!(huddles[pos].timestamp >= now, Error::<T>::InvalidTimestamp);
 						// Check if Bid's value is greater than the winning one.
-						let value_threshold = <BalanceOf<T>>::from(T::MinBidValueThreshold::get());
+						let value_threshold =
+							<BalanceOf<T>>::from(T::MinBidValueThreshold::get() as u8);
 						ensure!(
-						value > huddles[pos].value.unwrap() + value_threshold,
-						Error::<T>::BidIsTooLow
-					);
+							value > huddles[pos].value + value_threshold,
+							Error::<T>::BidIsTooLow
+						);
 
 						// We need to release the reserve value of the current winning Bid.
 						if let Some(last_guest) = huddles[pos].guest.clone() {
 							ensure!(
-							release_value::<T>(&last_guest, huddle),
-							Error::<T>::UnreserveError
-						);
+								release_value::<T>(&last_guest, huddle),
+								Error::<T>::UnreserveError
+							);
 						}
 
 						insert_update_bid::<T>(&guest, huddle, value);
@@ -360,7 +370,7 @@ pub mod pallet {
 						T::Currency::reserve(&guest, value.clone())?;
 
 						// Update the Huddle's data.
-						huddles[pos].value = Some(value);
+						huddles[pos].value = value;
 						huddles[pos].guest = Some(guest.clone());
 						huddles[pos].status = HuddleStatus::InAuction;
 
@@ -395,14 +405,14 @@ pub mod pallet {
 						// We need to release the reserve value of the last winning Bid.
 						if let Some(guest) = huddles[pos].guest.clone() {
 							ensure!(
-							repatriate_value::<T>(&guest, &host, huddle),
-							Error::<T>::RepatriateError
-						);
+								repatriate_value::<T>(&guest, &host, huddle),
+								Error::<T>::RepatriateError
+							);
 						}
 
 						// Update the Huddle's status.
 						huddles[pos].status = HuddleStatus::Concluded;
-						let value = huddles[pos].value.unwrap();
+						let value = huddles[pos].value.clone();
 
 						// Update the Host's Huddles.
 						<Huddles<T>>::insert(&host, huddles);
@@ -429,28 +439,34 @@ pub mod pallet {
 		if let Some(mut bids) = <Bids<T>>::get(guest) {
 			match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
 				Ok(pos) => {
-					bids[pos].value = Some(value);
+					bids[pos].value = value;
 					bids[pos].status = BidStatus::Winning;
 				},
 				Err(_) => {
 					// Insert a Bid entry.
 					let res = bids
-						.try_push(Bid {
-							huddle: huddle.clone(),
-							value: Some(value),
-							status: BidStatus::Winning,
-						})
+						.try_push(Bid { huddle: huddle.clone(), value, status: BidStatus::Winning })
 						.map_err(|()| Error::<T>::TooManyBids);
 					if !res.is_ok() {
-						return false;
+						return false
 					}
 				},
 			}
 			// Update the Guest's Bids.
 			<Bids<T>>::insert(guest, bids);
-			return true;
+		} else {
+			// Update the Guest's Bids.
+			<Bids<T>>::insert(
+				guest,
+				BoundedVec::try_from(vec![Bid {
+					huddle: huddle.clone(),
+					value,
+					status: BidStatus::Winning,
+				}])
+				.unwrap_or(BoundedVec::default()),
+			);
 		}
-		false
+		true
 	}
 
 	/// Release the value of a Surpassed Bid.
@@ -458,16 +474,15 @@ pub mod pallet {
 		if let Some(mut bids) = <Bids<T>>::get(guest) {
 			match bids.binary_search_by(|b| b.huddle.cmp(&huddle)) {
 				Ok(pos) => {
-					T::Currency::unreserve(guest, bids[pos].value.unwrap());
+					T::Currency::unreserve(guest, bids[pos].value);
 					bids[pos].status = BidStatus::Surpassed;
 					// Update the Guest's Bids.
 					<Bids<T>>::insert(guest, bids);
 				},
 				Err(_) => return false,
 			}
-			return true;
 		}
-		false
+		true
 	}
 
 	/// Repatriate the winning Bid's value to the Huddle's Host.
@@ -483,11 +498,11 @@ pub mod pallet {
 					let res = T::Currency::repatriate_reserved(
 						guest,
 						host,
-						bids[pos].value.unwrap(),
+						bids[pos].value,
 						BalanceStatus::Free,
 					);
 					if !res.is_ok() {
-						return false;
+						return false
 					}
 					bids[pos].status = BidStatus::Winner;
 					// Update the Guest's Bids.
@@ -495,8 +510,7 @@ pub mod pallet {
 				},
 				Err(_) => return false,
 			}
-			return true;
 		}
-		false
+		true
 	}
 }

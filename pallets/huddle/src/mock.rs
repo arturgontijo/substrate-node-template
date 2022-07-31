@@ -78,6 +78,7 @@ impl pallet_balances::Config for Test {
 parameter_types! {
 	pub const HuddlePalletId: PalletId = PalletId(*b"huddle22");
 	pub const MaxSocialAccountLength: u32 = 64;
+	pub const MaxSocialProofLength: u32 = 256;
 	pub const MaxHuddlesPerHost: u32 = 64;
 	pub const MaxBidsPerUser: u32 = 64;
 	pub const MinTimestampThreshold: u64 = 1;
@@ -104,6 +105,7 @@ impl pallet_huddle::Config for Test {
 	type PalletId = HuddlePalletId;
 	type Currency = Balances;
 	type MaxSocialAccountLength = MaxSocialAccountLength;
+	type MaxSocialProofLength = MaxSocialProofLength;
 	type MaxHuddlesPerHost = MaxHuddlesPerHost;
 	type MaxBidsPerUser = MaxBidsPerUser;
 	type MinTimestampThreshold = MinTimestampThreshold;

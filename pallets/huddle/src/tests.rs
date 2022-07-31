@@ -14,10 +14,18 @@ fn huddle_works() {
 
 		// Dispatch a register extrinsic -> register(origin, social_account).
 		let bounded_name: BoundedVec<_, _> = (b"alice").to_vec().try_into().unwrap();
-		assert_ok!(HuddlePallet::register(Origin::signed(1), bounded_name.clone()));
+		let bounded_proof: BoundedVec<_, _> = (b"alice's proof").to_vec().try_into().unwrap();
+		assert_ok!(HuddlePallet::register(
+			Origin::signed(1),
+			bounded_name.clone(),
+			bounded_proof.clone()
+		));
 
 		// Check if (1) is registered.
-		assert_eq!(HuddlePallet::hosts(1), bounded_name);
+		assert_eq!(
+			HuddlePallet::hosts(1),
+			Some(UserProfile { social_account: bounded_name, social_proof: bounded_proof }),
+		);
 
 		// Creating a Huddle for an unregistered Host (2).
 		assert_noop!(
@@ -25,23 +33,26 @@ fn huddle_works() {
 			Error::<Test>::HostNotRegistered,
 		);
 
-		// Creating a Huddle for an registered Host (1) -> create_huddle(origin, timestamp, value).
+		// Creating a Huddle for a registered Host (1) -> create_huddle(origin, timestamp, value).
 		assert_ok!(HuddlePallet::create_huddle(Origin::signed(1), 100, 2));
 
 		// Checking the created Huddle.
 		assert_eq!(
 			HuddlePallet::huddles(1),
-			vec![Huddle {
-				id: 1,
-				timestamp: 100,
-				guest: None,
-				value: Some(2),
-				status: HuddleStatus::Open
-			}]
+			Some(
+				BoundedVec::try_from(vec![Huddle {
+					id: 1,
+					timestamp: 100,
+					guest: None,
+					value: 2,
+					status: HuddleStatus::Open
+				}])
+				.unwrap()
+			),
 		);
 
 		// No Huddles for (2)
-		assert_eq!(HuddlePallet::huddles(2), vec![]);
+		assert_eq!(HuddlePallet::huddles(2), None);
 
 		// (2) bids with less than the minimum value -> bid(origin, host, huddle, value).
 		assert_noop!(HuddlePallet::bid(Origin::signed(2), 1, 1, 1), Error::<Test>::BidIsTooLow);
@@ -54,13 +65,16 @@ fn huddle_works() {
 		// Checking the created Huddle.
 		assert_eq!(
 			HuddlePallet::huddles(1),
-			vec![Huddle {
-				id: 1,
-				timestamp: 100,
-				guest: Some(3), // (3) is the winning guest.
-				value: Some(5),
-				status: HuddleStatus::InAuction
-			}]
+			Some(
+				BoundedVec::try_from(vec![Huddle {
+					id: 1,
+					timestamp: 100,
+					guest: Some(3), // (3) is the winning guest.
+					value: 5,
+					status: HuddleStatus::InAuction
+				}])
+				.unwrap()
+			)
 		);
 
 		// (2) bids for (1)'s Huddle -> bid(origin, host, huddle, value).
@@ -69,13 +83,16 @@ fn huddle_works() {
 		// Checking the created Huddle.
 		assert_eq!(
 			HuddlePallet::huddles(1),
-			vec![Huddle {
-				id: 1,
-				timestamp: 100,
-				guest: Some(2), // (2) is the winning guest.
-				value: Some(15),
-				status: HuddleStatus::InAuction
-			}]
+			Some(
+				BoundedVec::try_from(vec![Huddle {
+					id: 1,
+					timestamp: 100,
+					guest: Some(2), // (2) is the winning guest.
+					value: 15,
+					status: HuddleStatus::InAuction
+				}])
+				.unwrap()
+			)
 		);
 
 		// Check timestamp
@@ -96,6 +113,7 @@ fn huddle_works() {
 		// (1) claims the funds -> claim(origin, huddle).
 		assert_eq!(Balances::free_balance(1), 50);
 		assert_ok!(HuddlePallet::claim(Origin::signed(1), 1));
+
 		// (1) now has 50 (initial) + 15 (bid's value claimed) free balance.
 		assert_eq!(Balances::free_balance(1), 65);
 	});
