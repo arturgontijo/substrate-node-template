@@ -167,6 +167,9 @@ pub mod pallet {
 		MaxStarValueIsFive,
 	}
 
+	type AccountOf<T> = <T as frame_system::Config>::AccountId;
+	type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+
 	pub type SocialAccount<T> = BoundedVec<u8, <T as Config>::MaxSocialAccountLength>;
 	pub type SocialProof<T> = BoundedVec<u8, <T as Config>::MaxSocialProofLength>;
 	pub type HuddleId = u64;
@@ -191,35 +194,28 @@ pub mod pallet {
 		Winner,
 	}
 
-	type AccountOf<T> = <T as frame_system::Config>::AccountId;
-	type BalanceOf<T> =
-		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
-
 	/// Struct for Registered User (Host) information.
 	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
-	#[scale_info(skip_type_params(T))]
-	pub struct UserProfile<T: Config> {
-		pub social_account: SocialAccount<T>,
-		pub social_proof: SocialProof<T>,
+	pub struct UserProfile<SocialAccount, SocialProof> {
+		pub social_account: SocialAccount,
+		pub social_proof: SocialProof,
 	}
 
 	/// Struct for Bid's information.
 	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
-	#[scale_info(skip_type_params(T))]
-	pub struct Bid<T: Config> {
+	pub struct Bid<Balance> {
 		pub huddle: HuddleId,
-		pub value: BalanceOf<T>,
+		pub value: Balance,
 		pub status: BidStatus,
 	}
 
 	/// Struct for Huddle's information.
 	#[derive(PartialEq, Eq, Clone, Encode, Decode, MaxEncodedLen, RuntimeDebug, TypeInfo)]
-	#[scale_info(skip_type_params(T))]
-	pub struct Huddle<T: Config> {
+	pub struct Huddle<AccountId, Balance, Moment> {
 		pub id: HuddleId,
-		pub timestamp: T::Moment,
-		pub guest: Option<AccountOf<T>>,
-		pub value: BalanceOf<T>,
+		pub timestamp: Moment,
+		pub guest: Option<AccountId>,
+		pub value: Balance,
 		pub status: HuddleStatus,
 		pub stars: u8,
 	}
@@ -232,8 +228,13 @@ pub mod pallet {
 	#[pallet::storage]
 	#[pallet::getter(fn hosts)]
 	/// Binds an AccountId to a SubSocial Account.
-	pub(super) type Hosts<T: Config> =
-		StorageMap<_, Twox64Concat, T::AccountId, UserProfile<T>, OptionQuery>;
+	pub(super) type Hosts<T: Config> = StorageMap<
+		_,
+		Twox64Concat,
+		T::AccountId,
+		UserProfile<SocialAccount<T>, SocialProof<T>>,
+		OptionQuery
+	>;
 
 	#[pallet::storage]
 	#[pallet::getter(fn huddles)]
@@ -242,7 +243,7 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		T::AccountId,
-		BoundedVec<Huddle<T>, T::MaxHuddlesPerHost>,
+		BoundedVec<Huddle<T::AccountId, BalanceOf<T>, T::Moment>, T::MaxHuddlesPerHost>,
 		OptionQuery,
 	>;
 
@@ -253,7 +254,7 @@ pub mod pallet {
 		_,
 		Twox64Concat,
 		T::AccountId,
-		BoundedVec<Bid<T>, T::MaxBidsPerUser>,
+		BoundedVec<Bid<BalanceOf<T>>, T::MaxBidsPerUser>,
 		OptionQuery,
 	>;
 
@@ -311,7 +312,7 @@ pub mod pallet {
 			let next_uuid =
 				Self::huddle_counter().checked_add(1).ok_or(Error::<T>::OverflowHuddleId)?;
 
-			let new_huddle: Huddle<T> = Huddle {
+			let new_huddle = Huddle {
 				id: next_uuid,
 				timestamp: timestamp.clone(),
 				guest: None,
