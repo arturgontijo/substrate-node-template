@@ -121,7 +121,10 @@ fn huddle_works() {
 		assert_eq!(Balances::free_balance(1), 65);
 
 		// User (1) tries to rate his own huddle -> rate(origin, host, huddle, stars).
-		assert_noop!(HuddlePallet::rate(Origin::signed(1), 1, 1, 5), Error::<Test>::HostsCannotRateTheirHuddles);
+		assert_noop!(
+			HuddlePallet::rate(Origin::signed(1), 1, 1, 5),
+			Error::<Test>::HostsCannotRateTheirHuddles
+		);
 		// User (2), the winner, can rate the concluded huddle.
 		assert_ok!(HuddlePallet::rate(Origin::signed(2), 1, 1, 3));
 		// Checking the Huddle.

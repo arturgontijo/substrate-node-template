@@ -168,7 +168,8 @@ pub mod pallet {
 	}
 
 	type AccountOf<T> = <T as frame_system::Config>::AccountId;
-	type BalanceOf<T> = <<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
+	type BalanceOf<T> =
+		<<T as Config>::Currency as Currency<<T as frame_system::Config>::AccountId>>::Balance;
 
 	pub type SocialAccount<T> = BoundedVec<u8, <T as Config>::MaxSocialAccountLength>;
 	pub type SocialProof<T> = BoundedVec<u8, <T as Config>::MaxSocialProofLength>;
@@ -233,7 +234,7 @@ pub mod pallet {
 		Twox64Concat,
 		T::AccountId,
 		UserProfile<SocialAccount<T>, SocialProof<T>>,
-		OptionQuery
+		OptionQuery,
 	>;
 
 	#[pallet::storage]
@@ -260,7 +261,7 @@ pub mod pallet {
 
 	#[pallet::call]
 	impl<T: Config> Pallet<T> {
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(1))]
+		#[pallet::weight(T::DbWeight::get().reads(2) + T::DbWeight::get().writes(1))]
 		pub fn register(
 			origin: OriginFor<T>,
 			social_account: SocialAccount<T>,
@@ -292,7 +293,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(2))]
+		#[pallet::weight(T::DbWeight::get().reads(4) + T::DbWeight::get().writes(2))]
 		pub fn create_huddle(
 			origin: OriginFor<T>,
 			timestamp: T::Moment,
@@ -342,7 +343,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(3))]
+		#[pallet::weight(T::DbWeight::get().reads(5) + T::DbWeight::get().writes(4))]
 		pub fn bid(
 			origin: OriginFor<T>,
 			host: AccountOf<T>,
@@ -404,7 +405,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(2))]
+		#[pallet::weight(T::DbWeight::get().reads(3) + T::DbWeight::get().writes(2))]
 		pub fn claim(origin: OriginFor<T>, huddle: HuddleId) -> DispatchResult {
 			let host = ensure_signed(origin)?;
 			ensure!(0 < huddle && huddle <= Self::huddle_counter(), Error::<T>::InvalidHuddleId);
@@ -417,7 +418,8 @@ pub mod pallet {
 						let now = <timestamp::Pallet<T>>::get();
 						ensure!(huddles[pos].timestamp < now, Error::<T>::TimestampNotReached);
 
-						// We need to release the reserve value of the last winning Bid.
+						// We need to repatriate the reserve value of the winner Bid (if any) to the
+						// Host.
 						if let Some(guest) = huddles[pos].guest.clone() {
 							ensure!(
 								repatriate_value::<T>(&guest, &host, huddle),
@@ -444,7 +446,7 @@ pub mod pallet {
 			Ok(())
 		}
 
-		#[pallet::weight(10_000 + T::DbWeight::get().writes(3))]
+		#[pallet::weight(T::DbWeight::get().reads(3) + T::DbWeight::get().writes(1))]
 		pub fn rate(
 			origin: OriginFor<T>,
 			host: AccountOf<T>,
