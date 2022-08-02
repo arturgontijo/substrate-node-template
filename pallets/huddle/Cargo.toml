@@ -17,7 +17,6 @@ codec = { package = "parity-scale-codec", version = "3.0.0", default-features = 
 scale-info = { version = "2.1.1", default-features = false, features = ["derive"] }
 frame-support = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26"}
 frame-system = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
-frame-benchmarking = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26", optional = true }
 sp-io = { default-features = false, version = "6.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 sp-std = { default-features = false, version = "4.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
 pallet-timestamp = { default-features = false, version = "4.0.0-dev", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.26" }
@@ -37,11 +36,9 @@ std = [
 	"scale-info/std",
 	"frame-support/std",
 	"frame-system/std",
-	"frame-benchmarking/std",
 	"sp-std/std",
 	"pallet-balances/std",
 	"pallet-timestamp/std",
 ]
 
-runtime-benchmarks = ["frame-benchmarking/runtime-benchmarks"]
 try-runtime = ["frame-support/try-runtime"]

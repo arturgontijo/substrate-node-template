@@ -29,12 +29,12 @@ fn huddle_works() {
 
 		// Creating a Huddle for an unregistered Host (2).
 		assert_noop!(
-			HuddlePallet::create_huddle(Origin::signed(2), 100, 2),
+			HuddlePallet::create(Origin::signed(2), 100, 2),
 			Error::<Test>::HostNotRegistered,
 		);
 
 		// Creating a Huddle for a registered Host (1) -> create_huddle(origin, timestamp, value).
-		assert_ok!(HuddlePallet::create_huddle(Origin::signed(1), 100, 2));
+		assert_ok!(HuddlePallet::create(Origin::signed(1), 100, 2));
 
 		// Checking the created Huddle.
 		assert_eq!(
@@ -45,7 +45,7 @@ fn huddle_works() {
 					timestamp: 100,
 					guest: None,
 					value: 2,
-					status: HuddleStatus::Open,
+					status: HuddleStatus::Created,
 					stars: 0,
 				}])
 				.unwrap()
@@ -142,5 +142,75 @@ fn huddle_works() {
 				.unwrap()
 			)
 		);
+
+		// User (3), the loser, opens a huddle to talk to (1).
+		assert_ok!(HuddlePallet::open(Origin::signed(3), 1, 35));
+
+		// Checking the Huddles.
+		assert_eq!(
+			HuddlePallet::huddles(1),
+			Some(
+				BoundedVec::try_from(vec![
+					Huddle {
+						id: 1,
+						timestamp: 100,
+						guest: Some(2), // (2) is the winner guest.
+						value: 15,
+						status: HuddleStatus::Concluded,
+						stars: 3,
+					},
+					Huddle {
+						id: 2,
+						timestamp: 0,
+						guest: Some(3), // (3) is the winning guest.
+						value: 35,
+						status: HuddleStatus::Open,
+						stars: 0,
+					}
+				])
+				.unwrap()
+			)
+		);
+
+		// User (1) accepts the huddle to talk to (3)[id=2] at timestamp=150.
+		assert_ok!(HuddlePallet::accept(Origin::signed(1), 2, 150));
+
+		// Checking the Huddles.
+		assert_eq!(
+			HuddlePallet::huddles(1),
+			Some(
+				BoundedVec::try_from(vec![
+					Huddle {
+						id: 1,
+						timestamp: 100,
+						guest: Some(2), // (2) is the winner guest.
+						value: 15,
+						status: HuddleStatus::Concluded,
+						stars: 3,
+					},
+					Huddle {
+						id: 2,
+						timestamp: 150,
+						guest: Some(3), // (3) is the winning guest.
+						value: 35,
+						status: HuddleStatus::InAuction,
+						stars: 0,
+					}
+				])
+				.unwrap()
+			)
+		);
+
+		// Run 10 more blocks (6 secs per block)
+		run_to_block(30);
+		// Timestamp must be 180
+		assert_eq!(pallet_timestamp::Pallet::<Test>::get(), 180);
+
+		// (1) claims the funds -> claim(origin, huddle).
+		assert_eq!(Balances::free_balance(1), 65);
+		assert_ok!(HuddlePallet::claim(Origin::signed(1), 2));
+
+		// (1) now has 65 + 35 (bid's value claimed) free balance.
+		assert_eq!(Balances::free_balance(1), 100);
 	});
 }
