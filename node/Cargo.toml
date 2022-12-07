@@ -62,6 +62,9 @@ node-template-runtime = { version = "4.0.0-dev", path = "../runtime" }
 # CLI-specific dependencies
 try-runtime-cli = { version = "0.10.0-dev", optional = true, git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.32" }
 
+# Betting Pallet RPC
+pallet-betting-rpc = { version = "0.0.1", default-features = false, git = "https://github.com/AlexD10S/substrate-betting.git", branch = "artur-rpc" }
+
 [build-dependencies]
 substrate-build-script-utils = { version = "3.0.0", git = "https://github.com/paritytech/substrate.git", branch = "polkadot-v0.9.32" }
 

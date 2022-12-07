@@ -36,6 +36,8 @@ pub use frame_support::{
 		IdentityFee, Weight,
 	},
 	StorageValue,
+	PalletId,
+	BoundedVec,
 };
 pub use frame_system::Call as SystemCall;
 pub use pallet_balances::Call as BalancesCall;
@@ -66,6 +68,10 @@ pub type Index = u32;
 
 /// A hash of some data used by the chain.
 pub type Hash = sp_core::H256;
+
+pub type TeamName = BoundedVec<u8, ConstU32<64>>;
+pub type Bet = pallet_betting::Bet<AccountId, pallet_betting::MatchResult, Balance>;
+pub type Match = pallet_betting::Match<BlockNumber, TeamName, BoundedVec<Bet, ConstU32<10>>>;
 
 /// Opaque types. These are used by the CLI to instantiate machinery that don't need to know
 /// the specifics of the runtime. They can then be made to be agnostic over specific formats
@@ -278,6 +284,19 @@ impl pallet_template::Config for Runtime {
 	type RuntimeEvent = RuntimeEvent;
 }
 
+parameter_types! {
+	pub const BettingPalletId: PalletId = PalletId(*b"py/betts");
+}
+
+impl pallet_betting::Config for Runtime {
+	type PalletId = BettingPalletId;
+	type Currency = Balances;
+	type RuntimeEvent = RuntimeEvent;
+	type MaxTeamNameLength = ConstU32<64>;
+	type MaxBetsPerMatch = ConstU32<10>;
+	type WeightInfo = pallet_betting::weights::SubstrateWeight<Runtime>;
+}
+
 // Create the runtime by composing the FRAME pallets that were previously configured.
 construct_runtime!(
 	pub struct Runtime
@@ -296,6 +315,7 @@ construct_runtime!(
 		Sudo: pallet_sudo,
 		// Include the custom logic from the pallet-template in the runtime.
 		TemplateModule: pallet_template,
+		Betting: pallet_betting,
 	}
 );
 
@@ -343,10 +363,18 @@ mod benches {
 		[pallet_balances, Balances]
 		[pallet_timestamp, Timestamp]
 		[pallet_template, TemplateModule]
+		[pallet_betting, Betting]
 	);
 }
 
 impl_runtime_apis! {
+	impl pallet_betting_rpc_runtime_api::BettingApi<Block, AccountId, Match> for Runtime {
+		fn get_match(match_id: AccountId) -> pallet_betting_rpc_runtime_api::RpcResult<Match>
+		{
+		  Betting::get_match(match_id)
+		}
+	}
+
 	impl sp_api::Core<Block> for Runtime {
 		fn version() -> RuntimeVersion {
 			VERSION
